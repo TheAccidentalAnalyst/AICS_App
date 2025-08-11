@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang='en'>
+<head>
+  <meta charset='utf-8'>
+  <meta name='viewport' content='width=device-width, initial-scale=1'>
+  <title>SHAPE Session Prep — Minimal</title>
+  <link rel='stylesheet' href='/static/style.css'>
+</head>
+<body>
+  <main>
+    <h1>SHAPE Session Prep — Minimal</h1>
+    <p class='sub'>Paste your full chat transcript (JSON or User:/Assistant:). The app estimates a SHAPE-style influence score so you can reflect on your role in the collaboration.</p>
+
+    <form method='post' action='/analyze'>
+      <label for='transcript'>Transcript</label>
+      <textarea id='transcript' name='transcript' rows='12' placeholder='[{"role":"user","content":"..."},{"role":"assistant","content":"..."}]\n\nor\n\nUser: ...\nAssistant: ...' required></textarea>
+      <button type='submit'>Analyze</button>
+    </form>
+
+    {% if result %}
+      {% if result.error %}
+        <div class='card error'><strong>Error:</strong> {{ result.error }}</div>
+      {% else %}
+        <section class='results'>
+          <div class='card'>
+            <h3>Session analytics</h3>
+            <ul>
+              <li><strong>Turns:</strong> {{ result.stats.turns }}</li>
+              <li><strong>Human / AI turns:</strong> {{ result.stats.user_turns }} / {{ result.stats.ai_turns }}</li>
+              <li><strong>Human / AI words:</strong> {{ result.stats.human_words }} / {{ result.stats.ai_words }}</li>
+              <li><strong>AI share:</strong> {{ result.stats.ai_share }}</li>
+              <li><strong>Has code:</strong> {{ result.stats.has_code }}</li>
+            </ul>
+          </div>
+          <div class='card'>
+            <h3>SHAPE-style influence</h3>
+            <div class='score'>{{ result.score }}</div>
+            <div class='label'>{{ result.label }}</div>
+            <ul>
+              {% for r in result.reasons %}
+                <li>{{ r }}</li>
+              {% endfor %}
+            </ul>
+            <p>{{ result.explanation }}</p>
+          </div>
+        </section>
+      {% endif %}
+    {% endif %}
+  </main>
+</body>
+</html>
