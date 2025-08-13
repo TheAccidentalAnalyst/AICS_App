@@ -1,0 +1,168 @@
+```html
+<!-- templates/enhanced_html_template.html -->
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>AICS Collaboration Analyzer</title>
+    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
+    <link rel="preconnect" href="[https://fonts.googleapis.com](https://fonts.googleapis.com)">
+    <link rel="preconnect" href="[https://fonts.gstatic.com](https://fonts.gstatic.com)" crossorigin>
+    <link href="[https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap](https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap)" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <div class="container mx-auto max-w-4xl p-4 md:p-8">
+        
+        <header class="text-center mb-12">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-slate-900">AICS Collaboration Analyzer</h1>
+            <p class="mt-4 text-lg text-slate-600">Understand your AI collaboration patterns and learn how to improve.</p>
+        </header>
+
+        <!-- Upload Form -->
+        <section class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-200">
+            <form action="/analyze" method="post" enctype="multipart/form-data">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                    <div>
+                        <label for="transcript_file" class="block text-sm font-medium text-slate-700 mb-2">Upload Transcript File</label>
+                        <input type="file" name="transcript_file" id="transcript_file" class="block w-full text-sm text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 transition-colors">
+                    </div>
+                    <div class="text-center text-slate-500 text-sm font-medium self-center">OR</div>
+                </div>
+                <div class="mt-6">
+                    <label for="transcript_paste" class="block text-sm font-medium text-slate-700 mb-2">Paste Transcript</label>
+                    <textarea name="transcript_paste" id="transcript_paste" rows="10" class="w-full p-4 border border-slate-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all" placeholder="Paste your full chat transcript here..."></textarea>
+                </div>
+                <div class="mt-6">
+                    <button type="submit" class="w-full bg-blue-600 text-white font-bold py-3 px-4 rounded-xl hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-transform transform hover:scale-105 shadow-lg">Analyze My Session</button>
+                </div>
+            </form>
+        </section>
+
+        <!-- Results Section -->
+        {% if result %}
+            <div id="results-section" class="mt-12">
+                {% if result.errors %}
+                    <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded-lg" role="alert">
+                        <p class="font-bold">Error</p>
+                        <p>{{ result.errors[0] }}</p>
+                    </div>
+                {% else %}
+                    <!-- Light Report -->
+                    {% if result.is_light_report %}
+                        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-200 text-center">
+                            <h2 class="text-2xl font-bold text-slate-800">Your Light Report</h2>
+                            <p class="text-slate-600 mt-2">Here's a high-level summary of your collaboration.</p>
+                            
+                            <!-- High-level stats -->
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mt-8 text-center">
+                                <div class="bg-slate-100 p-4 rounded-lg">
+                                    <p class="text-sm text-slate-500">Total Turns</p>
+                                    <p class="text-2xl font-bold text-slate-900">{{ result.insights.total_turns }}</p>
+                                </div>
+                                <div class="bg-slate-100 p-4 rounded-lg">
+                                    <p class="text-sm text-slate-500">Your Turns</p>
+                                    <p class="text-2xl font-bold text-slate-900">{{ result.insights.user_turns }}</p>
+                                </div>
+                                <div class="bg-slate-100 p-4 rounded-lg">
+                                    <p class="text-sm text-slate-500">AI's Turns</p>
+                                    <p class="text-2xl font-bold text-slate-900">{{ result.insights.ai_turns }}</p>
+                                </div>
+                                <div class="bg-slate-100 p-4 rounded-lg">
+                                    <p class="text-sm text-slate-500">AI Word Share</p>
+                                    <p class="text-2xl font-bold text-slate-900">{{ "%.0f"|format(result.insights.ai_contribution_ratio * 100) }}%</p>
+                                </div>
+                            </div>
+
+                            <div class="mt-8 bg-blue-50 border border-blue-200 p-6 rounded-xl">
+                                <p class="text-sm font-medium text-blue-800">Your AI Use Classification</p>
+                                <p class="text-4xl font-extrabold text-blue-600 mt-1">{{ result.insights.classification.value }}</p>
+                            </div>
+
+                            <!-- Unlock Full Report Section -->
+                            <div class="mt-10 p-6 bg-slate-100 rounded-2xl relative overflow-hidden">
+                                <div class="absolute inset-0 bg-white/50 backdrop-blur-sm z-10 flex items-center justify-center">
+                                    <div class="text-center p-4 bg-white/80 rounded-xl shadow-md">
+                                        <h3 class="text-lg font-bold text-slate-800">Unlock Your Full Report</h3>
+                                        <p class="text-slate-600 text-sm mt-1">Get your detailed SHAPE score and personalized recommendations.</p>
+                                        <form action="/analyze" method="post" class="mt-4 flex flex-col sm:flex-row gap-2">
+                                            <input type="hidden" name="transcript_paste" value="{{ result.transcript_content }}">
+                                            <input type="email" name="email" required class="w-full sm:w-auto flex-grow p-2 border border-slate-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder="your.email@example.com">
+                                            <button type="submit" class="bg-blue-600 text-white font-bold py-2 px-4 rounded-md hover:bg-blue-700 transition-colors">Unlock Now</button>
+                                        </form>
+                                    </div>
+                                </div>
+                                <!-- Blurred background content -->
+                                <h3 class="text-xl font-bold text-slate-800 mb-4">Full Report Preview</h3>
+                                <p class="font-semibold text-slate-700">SHAPE Domain Breakdown:</p>
+                                <p class="text-slate-500">Structural Vision (S): ?/5</p>
+                                <p class="text-slate-500">Human-Led Meaning (H): ?/5</p>
+                                <p class="font-semibold text-slate-700 mt-4">Recommendations:</p>
+                                <p class="text-slate-500">Your Path to [Next Level]...</p>
+                            </div>
+                        </div>
+                    <!-- Full Report -->
+                    {% else %}
+                        <div class="bg-white p-6 md:p-8 rounded-2xl shadow-lg border border-slate-200">
+                            <h2 class="text-3xl font-bold text-slate-900 text-center">Your Full Collaboration Report</h2>
+                            
+                            <!-- Classification and Score -->
+                            <div class="mt-8 text-center bg-blue-50 border border-blue-200 p-6 rounded-xl">
+                                <p class="text-sm font-medium text-blue-800">AI Use Classification</p>
+                                <p class="text-4xl font-extrabold text-blue-600 mt-1">{{ result.insights.classification.value }}</p>
+                                <p class="text-sm font-medium text-blue-800 mt-4">Total SHAPE Score</p>
+                                <p class="text-6xl font-extrabold text-blue-600">{{ result.insights.total_shape_score }}<span class="text-3xl text-blue-400">/25</span></p>
+                            </div>
+
+                            <!-- SHAPE Breakdown -->
+                            <div class="mt-8">
+                                <h3 class="text-xl font-bold text-slate-800 mb-4">SHAPE Domain Breakdown</h3>
+                                <div class="space-y-4">
+                                    <div class="p-4 bg-slate-100 rounded-lg">
+                                        <p><strong>Structural Vision (S): {{ result.insights.structural_score }}/5</strong></p>
+                                    </div>
+                                    <div class="p-4 bg-slate-100 rounded-lg">
+                                        <p><strong>Human-Led Meaning (H): {{ result.insights.human_meaning_score }}/5</strong></p>
+                                    </div>
+                                    <div class="p-4 bg-slate-100 rounded-lg">
+                                        <p><strong>Authorial Voice (A): {{ result.insights.authorial_voice_score }}/5</strong></p>
+                                    </div>
+                                    <div class="p-4 bg-slate-100 rounded-lg">
+                                        <p><strong>Purpose Framing (P): {{ result.insights.purpose_framing_score }}/5</strong></p>
+                                    </div>
+                                    <div class="p-4 bg-slate-100 rounded-lg">
+                                        <p><strong>Editorial Intervention (E): {{ result.insights.editorial_score }}/5</strong></p>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Recommendations -->
+                            <div class="mt-8">
+                                <h3 class="text-xl font-bold text-slate-800 mb-4">{{ result.recommendations.title }}</h3>
+                                <p class="text-slate-600 mb-4">{{ result.recommendations.summary }}</p>
+                                <ul class="list-disc list-inside space-y-2 text-slate-700">
+                                    {% for tactic in result.recommendations.tactics %}
+                                    <li>{{ tactic }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </div>
+
+                            <!-- Upsell -->
+                            <div class="mt-10 text-center p-6 bg-slate-800 text-white rounded-2xl">
+                                <h3 class="text-xl font-bold">Ready for Formal Citation?</h3>
+                                <p class="mt-2 text-slate-300">This report analyzes your collaboration <span class="font-bold">process</span>. For academic or professional work, AICS Pro analyzes the <span class="font-bold">final product</span> using Levenshtein distance.</p>
+                                <a href="#" class="mt-4 inline-block bg-blue-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-blue-500 transition-colors">Upgrade to AICS Pro</a>
+                            </div>
+                        </div>
+                    {% endif %}
+                {% endif %}
+            </div>
+        {% endif %}
+    </div>
+</body>
+</html>

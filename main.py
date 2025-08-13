@@ -1,183 +1,299 @@
-import re
-import json
-from typing import List, Optional, Tuple
-from dataclasses import dataclass
+# optimized_aics_app.py
 
+import re
+from typing import List, Optional, Tuple, Dict, Any
+from dataclasses import dataclass
+from enum import Enum
 import docx
 from fastapi import FastAPI, Request, Form, UploadFile, File
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+import chardet # Library to detect character encoding
 
 # --- App Setup ---
-app = FastAPI(title="SHAPE Session Analyzer")
+app = FastAPI(title="AICS Human-AI Collaboration Analyzer")
+# Assumes the HTML file is in a 'templates' directory
 templates = Jinja2Templates(directory="templates")
 
 # --- Data Models ---
-class Msg(BaseModel):
-    role: str
-    content: str
+
+# 1. Replaced old CollaborationPattern with the new 4-tier system
+class AIUseClassification(Enum):
+    TOOL_ENHANCER = "Tool / Enhancer"
+    ASSISTANT = "Assistant"
+    AUGMENTOR = "Augmentor"
+    COCREATOR = "Cocreator"
 
 @dataclass
-class ParsedChat:
-    messages: List[Msg]
+class Message:
+    role: str
+    content: str
+    word_count: int
+
+@dataclass
+class ParsedSession:
+    messages: List[Message]
     errors: List[str]
+    user_word_count: int
+    ai_word_count: int
+    user_turns: int
+    ai_turns: int
+
+@dataclass
+class CollaborationInsights:
+    # Quantitative stats for the Light Report
+    total_turns: int
+    user_turns: int
+    ai_turns: int
+    user_words: int
+    ai_words: int
+    ai_contribution_ratio: float
+    
+    # Qualitative analysis for the Full Report
+    structural_score: int
+    human_meaning_score: int
+    authorial_voice_score: int
+    purpose_framing_score: int
+    editorial_score: int
+    total_shape_score: int
+    
+    # Final classification for both reports
+    classification: AIUseClassification
 
 # --- Parsing Logic ---
-def parse_chat_transcript(text: str) -> ParsedChat:
+
+def parse_chat_transcript(text: str) -> ParsedSession:
     """
-    Parses a raw text transcript that uses "You said:" and "ChatGPT said:" as delimiters.
-    This is tailored to the user's manual copy-paste workflow.
+    Parses a raw text transcript into a list of messages.
+    This version is simplified to focus on the core logic of splitting by speaker.
     """
     if not text or not text.strip():
-        return ParsedChat([], ["Input text is empty."])
+        return ParsedSession([], ["Input text is empty."], 0, 0, 0, 0)
 
-    # Split by the most reliable markers
-    # The (?=...) is a lookahead that keeps the delimiter in the result
-    parts = re.split(r'(?=You said:|ChatGPT said:)', text.strip())
+    # Normalize line endings
+    text = re.sub(r'\r\n|\r', '\n', text)
     
-    messages: List[Msg] = []
-    errors: List[str] = []
+    # DEBUG FIX: Made the regex more specific to prevent potential ReDoS attacks.
+    # It now looks for a newline, potential whitespace, the speaker role, a colon, and then more whitespace.
+    parts = re.split(r'\n\s*(?=(?:User|You|Human|AI|Assistant|ChatGPT):\s*)', text.strip())
+    
+    messages = []
+    errors = []
+    
+    user_word_count = 0
+    ai_word_count = 0
+    user_turns = 0
+    ai_turns = 0
 
+    if len(parts) == 1 and '\n' not in text:
+        parts = [text]
+
+    current_role = "user" 
+    
     for part in parts:
         part = part.strip()
         if not part:
             continue
 
-        if part.startswith("You said:"):
-            role = "user"
-            content = part.replace("You said:", "").strip()
-        elif part.startswith("ChatGPT said:"):
-            role = "assistant"
-            content = part.replace("ChatGPT said:", "").strip()
-        else:
-            # Handle text before the first delimiter, assign it to the user
-            if not messages:
-                role = "user"
-                content = part
-            else:
-                # If there's text that doesn't match, append it to the last message
-                if messages:
-                    messages[-1].content += f"\n\n{part}"
-                continue
+        part_lower = part.lower()
+        role = current_role
         
-        if content:
-            messages.append(Msg(role=role, content=content))
+        if any(part_lower.startswith(p) for p in ["user:", "you:", "human:"]):
+            role = "user"
+            part = re.sub(r'^(?:User|You|Human):\s*', '', part, flags=re.IGNORECASE).strip()
+        elif any(part_lower.startswith(p) for p in ["ai:", "assistant:", "chatgpt:"]):
+            role = "assistant"
+            part = re.sub(r'^(?:AI|Assistant|ChatGPT):\s*', '', part, flags=re.IGNORECASE).strip()
+        
+        word_count = len(re.findall(r'\b\w+\b', part))
+        messages.append(Message(role=role, content=part, word_count=word_count))
+        
+        if role == "user":
+            user_word_count += word_count
+            user_turns += 1
+            current_role = "assistant"
+        else:
+            ai_word_count += word_count
+            ai_turns += 1
+            current_role = "user"
 
     if not messages:
-        errors.append("Could not parse any conversational turns. Ensure the transcript uses 'You said:' and 'ChatGPT said:'.")
+        errors.append("Could not parse transcript. Please ensure it contains clear speaker roles (e.g., 'User:' and 'AI:').")
 
-    return ParsedChat(messages=messages, errors=errors)
+    return ParsedSession(messages, errors, user_word_count, ai_word_count, user_turns, ai_turns)
 
-# --- SHAPE Analysis & Recommendations ---
-@dataclass
-class SessionStats:
-    turns: int
-    user_turns: int
-    ai_turns: int
-    user_words: int
-    ai_words: int
-    ai_share: float
 
-def extract_stats(msgs: List[Msg]) -> SessionStats:
-    user_turns = sum(1 for m in msgs if m.role == "user")
-    ai_turns = sum(1 for m in msgs if m.role == "assistant")
+# --- Analysis Engine ---
+
+def calculate_shape_scores(messages: List[Message]) -> Tuple[int, int, int, int, int]:
+    """Calculate SHAPE scores based on user prompts."""
+    user_messages = [m.content.lower() for m in messages if m.role == "user"]
+    if not user_messages:
+        return 0, 0, 0, 0, 0
+
+    # S - Structural Vision
+    s_score = sum(1 for m in user_messages if any(k in m for k in ["outline", "structure", "organize", "framework", "reorganize", "format"]))
     
-    word_count = lambda s: len(re.findall(r'\b\w+\b', s))
-    user_words = sum(word_count(m.content) for m in msgs if m.role == "user")
-    ai_words = sum(word_count(m.content) for m in msgs if m.role == "assistant")
+    # H - Human-Led Meaning
+    h_score = sum(1 for m in user_messages if any(k in m for k in ["meaning", "interpret", "clarify", "the point is", "in other words"]))
     
-    total_words = max(1, user_words + ai_words)
-    ai_share = ai_words / total_words
-
-    return SessionStats(len(msgs), user_turns, ai_turns, user_words, ai_words, ai_share)
-
-def get_shape_score_and_recs(stats: SessionStats) -> Tuple[int, str, str]:
-    score = 2  # Start with a moderate baseline
-
-    if stats.ai_share >= 0.65:
-        score += 2
-    elif stats.ai_share >= 0.40:
-        score += 1
-
-    if stats.ai_share <= 0.20:
-        score -= 1
+    # A - Authorial Voice
+    a_score = sum(1 for m in user_messages if any(k in m for k in ["my voice", "style", "tone", "make it sound like", "more personal"]))
     
-    if stats.turns > 20: # Long conversations suggest deeper collaboration or guidance
-        score += 1
+    # P - Purpose Framing
+    p_score = sum(1 for m in user_messages if any(k in m for k in ["audience", "purpose", "goal", "for a", "so that"]))
     
-    score = max(0, min(5, score)) # Clamp score between 0 and 5
+    # E - Editorial Intervention
+    e_score = sum(1 for m in user_messages if any(k in m for k in ["edit", "refine", "change", "add", "remove", "improve", "rewrite"]))
 
-    interpretations = {
-        0: "You were the sole author, using the AI as a basic tool (like a search engine or thesaurus).",
-        1: "You heavily directed the session, using the AI for specific, small tasks.",
-        2: "This was a balanced partnership where you provided clear direction and the AI generated content.",
-        3: "The AI acted as a strong assistant, generating significant portions of the content based on your prompts.",
-        4: "The AI did most of the heavy lifting, acting as a primary author with your guidance.",
-        5: "The AI was the dominant author, generating nearly all of the content with minimal changes from you."
+    # Clamp scores between 0 and 5
+    return min(s_score, 5), min(h_score, 5), min(a_score, 5), min(p_score, 5), min(e_score, 5)
+
+# 2. New function to determine classification based on SHAPE score
+def determine_ai_use_classification(total_shape_score: int) -> AIUseClassification:
+    """Determines the classification based on the total SHAPE score."""
+    if total_shape_score <= 10:
+        return AIUseClassification.TOOL_ENHANCER
+    elif 11 <= total_shape_score <= 17:
+        return AIUseClassification.ASSISTANT
+    elif 18 <= total_shape_score <= 22:
+        return AIUseClassification.AUGMENTOR
+    else: # 23-25
+        return AIUseClassification.COCREATOR
+
+# 3. Updated recommendations to match the new classification system
+def generate_recommendations(classification: AIUseClassification) -> Dict[str, Any]:
+    """Generates recommendations based on the user's classification."""
+    recs = {
+        AIUseClassification.TOOL_ENHANCER: {
+            "title": "Your Path to Assistant",
+            "summary": "You're using AI for specific tasks. To grow, try giving the AI more open-ended problems to solve.",
+            "tactics": [
+                "Ask the AI for a full first draft instead of just a small piece.",
+                "Request multiple different versions or approaches to a problem.",
+                "Provide more context about your audience and goal in your initial prompt."
+            ]
+        },
+        AIUseClassification.ASSISTANT: {
+            "title": "Your Path to Augmentor",
+            "summary": "You're good at refining AI output. To advance, focus on providing more strategic direction *before* the AI generates.",
+            "tactics": [
+                "Define a clear structure or outline for the AI to follow.",
+                "Ask the AI to critique its own work or identify weaknesses in its response.",
+                "Specify a clear tone, style, and voice for the AI to adopt."
+            ]
+        },
+        AIUseClassification.AUGMENTOR: {
+            "title": "Your Path to Cocreator",
+            "summary": "You are effectively guiding the AI with strong strategic input. To reach the next level, push the AI to become a true thinking partner.",
+            "tactics": [
+                "Challenge the AI's assumptions by asking 'What are the flaws in this approach?'.",
+                "Use the AI for more creative, divergent thinking: 'Brainstorm three unconventional solutions.'",
+                "Delegate comparative analysis: 'How does this plan compare to successful examples in other fields?'"
+            ]
+        },
+        AIUseClassification.COCREATOR: {
+            "title": "You are a Cocreator!",
+            "summary": "You are operating at the highest level of human-AI collaboration, using the AI as a true strategic partner. Keep exploring the boundaries of what's possible.",
+            "tactics": [
+                "Continue to push the AI into novel domains and complex, multi-step reasoning tasks.",
+                "Experiment with having the AI adopt multiple expert personas to debate a topic.",
+                "Use the AI to synthesize information from completely different fields to spark innovation."
+            ]
+        }
     }
+    return recs.get(classification, {})
 
-    recommendations = {
-        0: "To better leverage the AI, try asking it to create a full first draft or brainstorm a list of unconventional ideas to give you a stronger starting point.",
-        1: "To deepen the collaboration, consider giving the AI more open-ended tasks. For example, ask it to 'propose a structure for this document' or 'expand on this key idea'.",
-        2: "This is a great collaborative balance. To push further, ask the AI to critique its own work or act as a 'devil's advocate' to challenge your assumptions.",
-        3: "You are effectively delegating tasks to the AI. To increase your own authorial contribution, try rewriting a key section entirely in your own voice or adding a unique analysis.",
-        4: "To ensure the final work reflects your unique perspective, focus on adding personal insights, examples, or a critical analysis that the AI could not have produced on its own.",
-        5: "This is a valid use of AI for rapid generation. However, be sure to thoroughly review, fact-check, and edit the output to ensure it meets your standards and contains your authorial voice."
-    }
+def analyze_session(session: ParsedSession) -> CollaborationInsights:
+    """Performs the full analysis of the parsed session."""
+    s, h, a, p, e = calculate_shape_scores(session.messages)
+    total_shape = s + h + a + p + e
     
-    return score, interpretations.get(score, ""), recommendations.get(score, "")
+    classification = determine_ai_use_classification(total_shape)
+    
+    total_words = max(1, session.user_word_count + session.ai_word_count)
+    ai_contribution_ratio = session.ai_word_count / total_words
+    
+    return CollaborationInsights(
+        total_turns=session.user_turns + session.ai_turns,
+        user_turns=session.user_turns,
+        ai_turns=session.ai_turns,
+        user_words=session.user_word_count,
+        ai_words=session.ai_word_count,
+        ai_contribution_ratio=ai_contribution_ratio,
+        structural_score=s,
+        human_meaning_score=h,
+        authorial_voice_score=a,
+        purpose_framing_score=p,
+        editorial_score=e,
+        total_shape_score=total_shape,
+        classification=classification
+    )
 
 # --- FastAPI Routes ---
+
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request, "result": None})
+    """Serves the main page."""
+    return templates.TemplateResponse("enhanced_html_template.html", {"request": request, "result": None})
 
+# 4. Modified /analyze endpoint to handle the Freemium logic
 @app.post("/analyze", response_class=HTMLResponse)
-async def analyze(
+async def handle_analysis(
     request: Request,
-    transcript_paste: str = Form(None),
-    transcript_file: Optional[UploadFile] = File(None)
+    transcript_paste: str = Form(""),
+    transcript_file: Optional[UploadFile] = File(None),
+    email: Optional[str] = Form(None)
 ):
-    text_content = ""
+    """
+    Analyzes the transcript and returns either a Light or Full report
+    based on the presence of an email address.
+    """
+    text_content = transcript_paste
     errors = []
 
     if transcript_file and transcript_file.filename:
         try:
+            contents = await transcript_file.read()
+            # DEBUG FIX: Handle different file encodings gracefully.
+            # First, try to detect the encoding. Fallback to utf-8.
+            detected_encoding = chardet.detect(contents)['encoding'] or 'utf-8'
+            
             if transcript_file.filename.endswith('.docx'):
+                # python-docx reads from a file-like object, so we pass the file pointer
+                transcript_file.file.seek(0)
                 document = docx.Document(transcript_file.file)
                 text_content = "\n".join([para.text for para in document.paragraphs])
-            else: # Assume .txt or other plain text
-                contents = await transcript_file.read()
-                text_content = contents.decode('utf-8')
+            else:
+                text_content = contents.decode(detected_encoding, errors='ignore')
         except Exception as e:
             errors.append(f"Error reading file: {e}")
-    elif transcript_paste and transcript_paste.strip():
-        text_content = transcript_paste
-    else:
+    
+    if not text_content and not errors:
         errors.append("Please upload a file or paste a transcript.")
 
     if errors:
-        return templates.TemplateResponse("index.html", {"request": request, "result": {"errors": errors}})
+        return templates.TemplateResponse("enhanced_html_template.html", {"request": request, "result": {"errors": errors}})
 
-    parsed = parse_chat_transcript(text_content)
+    session = parse_chat_transcript(text_content)
     
-    if parsed.errors or not parsed.messages:
-        return templates.TemplateResponse("index.html", {"request": request, "result": {"errors": parsed.errors or ["Failed to parse transcript."]}})
-        
-    stats = extract_stats(parsed.messages)
-    score, interpretation, recommendation = get_shape_score_and_recs(stats)
+    if session.errors:
+        return templates.TemplateResponse("enhanced_html_template.html", {"request": request, "result": {"errors": session.errors}})
 
+    insights = analyze_session(session)
+    
+    # Freemium Gate Logic
+    is_light_report = not bool(email and "@" in email)
+    
     result = {
-        "stats": stats,
-        "score": score,
-        "interpretation": interpretation,
-        "recommendation": recommendation,
+        "insights": insights,
+        "is_light_report": is_light_report,
+        "transcript_content": text_content, # Pass content back for the email form
         "errors": []
     }
 
-    return templates.TemplateResponse("index.html", {"request": request, "result": result})
+    if not is_light_report:
+        # Add full recommendations only for the full report
+        result["recommendations"] = generate_recommendations(insights.classification)
 
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
+    return templates.TemplateResponse("enhanced_html_template.html", {"request": request, "result": result})
