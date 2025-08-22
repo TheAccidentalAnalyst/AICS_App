@@ -211,13 +211,13 @@ function generateInsightsAndRecommendations(scores, stats) {
   ]);
 
   noteIfLow('P', 'Purpose Framing', [
-    'Open with your goal, audience, and desired deliverable ("I need a 1-page brief for executitves").'
-    'Specify any constraints (length, deadline) and what success looks like.'
+    'Open with your goal, audience, and desired deliverable ("I need a 1-page brief for executives").',
+    'Specify any constraints (length, deadline) and what success looks like.',
   ]);
 
   noteIfLow('E', 'Editorial Intervention', [
     'Point out what is wrong or missing and say how to fix it.',
-    'Ask for deeper detail or remove sections that aren't helpful.'
+    'Ask for deeper detail or remove sections that aren\'t helpful.',
   ]);
 
   // Conversation pattern tips
