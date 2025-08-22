@@ -211,7 +211,7 @@ function generateInsightsAndRecommendations(scores, stats) {
   ]);
 
   noteIfLow('P', 'Purpose Framing', [
-    'Open with your goal, audience, and desired deliverable ("I need a 1-page brief for executives").',
+    'Open with your goal, audience, and desired deliverable ("I need a 1-page brief for executitves").'
     'Specify any constraints (length, deadline) and what success looks like.'
   ]);
 
